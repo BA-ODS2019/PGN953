@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec  1 19:26:07 2019
+
+@author: saralivbroe og camillaejbypedersen
+"""
+
+import requests
+import pandas as pd
+from pandas.io.json import json_normalize
+
+# 2. Compose URL to retrive JSON data from SMK API
+URL = 'https://api.smk.dk/api/v1/art/search/?keys=Picasso&offset=0&rows=200'
+
+# 3. Fetch data and perform cleanup 
+json = requests.get(URL).json()
+
+# Flatten JSON response to access nested JSON values
+def flatten_json(y):
+    out = {}
+
+    def flatten(x, name=''):
+        if type(x) is dict:
+            for a in x:
+                flatten(x[a], name + a + '_')
+        elif type(x) is list:
+            i = 0
+            for a in x:
+                flatten(a, name + str(i) + '_')
+                i += 1
+        else:
+            out[name[:-1]] = x
+        
+    flatten(y)
+    return out
+
+dic_flattened = [flatten_json(d) for d in json['items']]
+
+# Load the processed responsed into a data frame
+df = json_normalize(dic_flattened)
+
+# Use the item Id as the index in the dataframe, provided that it is unique
+if (df['id'].is_unique):
+    df.set_index('id', inplace=True)
+
+# Drop columns from dataframe, which we are not interessted in
+columns_to_keep = ['production_date_0_end']
+columns_to_drop = []
+
+for columnName in df.columns:
+    if (not columns_to_keep.__contains__(columnName)):
+        columns_to_drop.append(columnName)
+
+df.drop(columns=columns_to_drop, inplace=True)
+
+# 4 + 5. process data and perform computation.
+
+# Extract the year each item was finished into a new column
+df['FinishedYear'] = df['production_date_0_end'].str.extract(r'^(\d{4})', expand=False)
+
+# Process dataset counting number of items finished per year and create overview
+byYearCount = df['FinishedYear'].value_counts(normalize=False).sort_index()
+byYearFrequency = df['FinishedYear'].value_counts(normalize=True).sort_index()
+overview = pd.concat([byYearCount, 
+                round(byYearFrequency.mul(100), 2)],axis=1, keys=('Counts','Percentage'))
+
+# 6. Visualization
+    
+# Print data table and chart
+print("\nItems finished by year (in the SMK collection)\n")
+print(overview)
+print(byYearFrequency.plot(kind='line'))
